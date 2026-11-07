@@ -49,12 +49,29 @@ def _parse_count(line: str):
     return int(value)
 
 
+THREAD_PART_RE = re.compile(r"^\d+/\d+$")
+CYRILLIC_RE = re.compile(r"[Ѐ-ӿ]")
+LETTER_RE = re.compile(r"[^\W\d_]", re.UNICODE)
+
+
+def _is_cyrillic(text: str) -> bool:
+    letters = LETTER_RE.findall(text)
+    if len(letters) < 10:
+        return False
+    cyrillic = CYRILLIC_RE.findall(text)
+    return len(cyrillic) / len(letters) > 0.3
+
+
 def _parse_post(raw_text: str):
     lines = [line.strip() for line in raw_text.split("\n") if line.strip()]
     body_lines = []
     counts = []
+    is_reply = False
     for line in lines[2:]:
         if line == "Translate":
+            continue
+        if line.startswith("Replying to"):
+            is_reply = True
             continue
         count = _parse_count(line)
         if count is not None:
@@ -62,8 +79,17 @@ def _parse_post(raw_text: str):
         else:
             body_lines.append(line)
     body = "\n".join(body_lines).strip()
-    likes = counts[0] if counts else None
-    return body, likes
+    likes = counts[0] if len(counts) > 0 else None
+    replies = counts[1] if len(counts) > 1 else None
+    is_thread_part = any(THREAD_PART_RE.match(line) for line in body_lines)
+    return {
+        "body": body,
+        "likes": likes,
+        "replies": replies,
+        "is_reply": is_reply,
+        "is_thread_part": is_thread_part,
+        "is_cyrillic": _is_cyrillic(body),
+    }
 
 
 class ThreadsSource:
@@ -84,11 +110,9 @@ class ThreadsSource:
                         if not match:
                             continue
                         author, shortcode = match.groups()
-                        body, likes = _parse_post(raw["text"])
-                        if body:
-                            posts[shortcode] = {
-                                "author": author, "shortcode": shortcode, "text": body, "likes": likes,
-                            }
+                        parsed = _parse_post(raw["text"])
+                        if parsed["body"]:
+                            posts[shortcode] = {"author": author, "shortcode": shortcode, **parsed}
 
                     page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
                     page.wait_for_timeout(1200)
@@ -105,13 +129,53 @@ class ThreadsSource:
                 fetched_at=fetched_at,
                 payload={
                     "author": post["author"],
-                    "text": post["text"],
+                    "text": post["body"],
                     "likes": post["likes"],
+                    "replies": post["replies"],
+                    "is_reply": post["is_reply"],
+                    "is_thread_part": post["is_thread_part"],
+                    "is_cyrillic": post["is_cyrillic"],
                     "link": f"https://www.threads.com/@{post['author']}/post/{post['shortcode']}",
                 },
             )
             for post in posts.values()
         ]
+
+
+def fetch_comments(post_url: str, limit: int = 5) -> list:
+    root_match = PERMALINK_RE.match(post_url.replace("https://www.threads.com", ""))
+    root_shortcode = root_match.group(2) if root_match else None
+
+    comments = {}
+    try:
+        with sync_playwright() as p:
+            context = p.chromium.launch_persistent_context(str(PROFILE_DIR), headless=True)
+            page = context.new_page()
+            page.goto(post_url, timeout=30000)
+            page.wait_for_timeout(2000)
+
+            for _ in range(3):
+                for raw in page.evaluate(EXTRACT_POSTS_JS):
+                    match = PERMALINK_RE.match(raw["href"])
+                    if not match:
+                        continue
+                    author, shortcode = match.groups()
+                    if shortcode == root_shortcode:
+                        continue
+                    parsed = _parse_post(raw["text"])
+                    body = parsed["body"]
+                    if body and body not in ("Show replies", "Hide replies") and len(body) >= 3:
+                        comments[shortcode] = {"author": author, "text": body, "likes": parsed["likes"]}
+
+                page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
+                page.wait_for_timeout(1000)
+
+            context.close()
+    except Exception:
+        logger.exception("threads: fetch_comments failed for %s", post_url)
+        return []
+
+    return sorted(comments.values(), key=lambda c: c["likes"] or 0, reverse=True)[:limit]
 
 
 if __name__ == "__main__":
