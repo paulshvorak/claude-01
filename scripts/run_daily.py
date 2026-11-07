@@ -6,9 +6,13 @@ import db
 import report
 import telegram_bot
 from sources.football import FootballSource
+from sources.instagram import InstagramSource
 
-SOURCES = [FootballSource()]
-DIGEST_HEADERS = {"football_articles": "Ліверпуль — новини за добу"}
+SOURCES = [FootballSource(), InstagramSource()]
+DIGEST_HEADERS = {
+    "football_articles": "Ліверпуль — новини за добу",
+    "instagram_posts": "Instagram — нові пости",
+}
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "run_daily.log"
 
@@ -32,7 +36,10 @@ def main():
             logger.exception("%s: source failed", source.name)
 
     for table, header in DIGEST_HEADERS.items():
-        text = report.build_digest(table, header)
+        if table == "instagram_posts":
+            text = report.build_instagram_digest(header)
+        else:
+            text = report.build_digest(table, header)
         if text is None:
             continue
         if telegram_bot.send_message(text):
