@@ -13,7 +13,17 @@ logger = logging.getLogger(__name__)
 SCHEDULE_URL = "https://multiplex.ua/cinema/lutsk/promin"
 MOVIE_URL = "https://multiplex.ua/movie/{id}"
 OMDB_URL = "http://www.omdbapi.com/"
+PREMIERCITY_URL = "https://premiercity.com.ua/rozklad/"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
+
+
+_LATIN_TO_CYRILLIC = str.maketrans("aeiopcxyAEIOPCXY", "аеіорсхуАЕІОРСХУ")
+
+
+def _normalize_title(title: str) -> str:
+    # сайти інколи мають однакові на вигляд, але різні символи
+    # (лат. "i" замість кир. "і" тощо) — зводимо до кирилиці перед порівнянням
+    return title.strip().lower().translate(_LATIN_TO_CYRILLIC)
 
 
 def _parse_schedule_date(value: str) -> date:
@@ -43,13 +53,57 @@ def _list_movies() -> list:
             else:
                 movies[movie_id]["earliest_date"] = min(movies[movie_id]["earliest_date"], block_date)
 
-    # лише те, що вже реально в прокаті, а не передпродаж майбутньої прем'єри:
-    # беремо найближчу дату, яку сама сторінка вважає "зараз" (а не наш час —
-    # ввечері сайт інколи вже показує завтра як перший блок), і невеликий запас
-    # в 1 день на фільми, що стартують наступного дня після цього блоку.
-    nearest = min(m["earliest_date"] for m in movies.values())
-    cutoff = nearest + timedelta(days=1)
+    # лише те, що йде найближчі 7 днів — не передпродаж майбутньої прем'єри
+    cutoff = date.today() + timedelta(days=7)
     return [m for m in movies.values() if m["earliest_date"] <= cutoff]
+
+
+def _premiercity_date(day: int, today: date) -> date:
+    candidate = date(today.year, today.month, day)
+    if candidate < today - timedelta(days=3):
+        month, year = (1, today.year + 1) if today.month == 12 else (today.month + 1, today.year)
+        candidate = date(year, month, day)
+    return candidate
+
+
+def _list_premiercity_movies() -> list:
+    response = requests.get(PREMIERCITY_URL, headers=HEADERS, timeout=15)
+    response.raise_for_status()
+    soup = BeautifulSoup(response.text, "html.parser")
+
+    now_showing = None
+    for section in soup.find_all("section"):
+        title_el = section.select_one(".title-box__title")
+        if title_el and "Зараз у прокаті" in title_el.get_text():
+            now_showing = section
+            break
+    if now_showing is None:
+        return []
+
+    today = date.today()
+    cutoff = today + timedelta(days=7)
+    movies = []
+    for figure in now_showing.select("figure.movie-hire"):
+        link_el = figure.select_one(".movie-hire__title a")
+        if not link_el:
+            continue
+
+        days = [int(c.split("_")[1]) for c in figure.get("class", []) if c.startswith("date_")]
+        if not days:
+            continue
+        earliest_date = min(_premiercity_date(d, today) for d in days)
+        if earliest_date > cutoff:
+            continue
+
+        match = re.search(r"-(\d+)$", link_el["href"].rstrip("/"))
+        pc_id = match.group(1) if match else link_el["href"]
+        movies.append({
+            "id": f"pc_{pc_id}",
+            "title": link_el.get_text(strip=True),
+            "link": link_el["href"],
+        })
+
+    return movies
 
 
 def _fetch_details(movie_id: str) -> dict:
@@ -124,6 +178,29 @@ class MultiplexSource:
                     "year": details["year"],
                     "rt_rating": details["rt_rating"],
                     "imdb_rating": imdb_rating,
+                },
+            ))
+
+        known_titles = {_normalize_title(m["title"]) for m in movies}
+        try:
+            pc_movies = _list_premiercity_movies()
+        except requests.RequestException:
+            logger.exception("multiplex: premiercity fetch failed")
+            pc_movies = []
+
+        for movie in pc_movies:
+            if _normalize_title(movie["title"]) in known_titles:
+                continue
+            items.append(Item(
+                external_id=movie["id"],
+                fetched_at=fetched_at,
+                payload={
+                    "title": movie["title"],
+                    "link": movie["link"],
+                    "original_title": None,
+                    "year": None,
+                    "rt_rating": None,
+                    "imdb_rating": None,
                 },
             ))
 
