@@ -68,7 +68,6 @@ def build_multiplex_digest(items: list, seen_before_ids: set, header: str) -> st
         p = item.payload
         marker = "🆕 " if item.external_id not in seen_before_ids else ""
         title = html.escape(p["title"])
-        original = f" ({html.escape(p['original_title'])}, {p['year']})" if p.get("original_title") else ""
 
         ratings = []
         if p.get("imdb_rating") is not None:
@@ -78,7 +77,7 @@ def build_multiplex_digest(items: list, seen_before_ids: set, header: str) -> st
         rating_text = f" — {' · '.join(ratings)}" if ratings else ""
 
         link = html.escape(p["link"], quote=True)
-        lines.append(f'• {marker}{title}{original}{rating_text} — <a href="{link}">Детальніше</a>')
+        lines.append(f'• {marker}{title}{rating_text} — <a href="{link}">Детальніше</a>')
     return "\n".join(lines)
 
 

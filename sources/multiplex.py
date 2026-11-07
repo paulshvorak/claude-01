@@ -1,6 +1,6 @@
 import logging
 import re
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 import requests
 from bs4 import BeautifulSoup
@@ -16,24 +16,40 @@ OMDB_URL = "http://www.omdbapi.com/"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 
+def _parse_schedule_date(value: str) -> date:
+    return date(int(value[4:8]), int(value[2:4]), int(value[0:2]))
+
+
 def _list_movies() -> list:
     response = requests.get(SCHEDULE_URL, headers=HEADERS, timeout=15)
     response.raise_for_status()
     soup = BeautifulSoup(response.text, "html.parser")
 
     movies = {}
-    for a in soup.select(".cinema_schedule_films a.title[href]"):
-        match = re.search(r"/movie/(\d+)", a["href"])
-        if not match:
-            continue
-        movie_id = match.group(1)
-        if movie_id not in movies:
-            movies[movie_id] = {
-                "id": movie_id,
-                "title": a["title"].strip(),
-                "link": f"https://multiplex.ua/movie/{movie_id}",
-            }
-    return list(movies.values())
+    for block in soup.select(".cinema_inside.sch_date"):
+        block_date = _parse_schedule_date(block["data-date"])
+        for a in block.select("a.title[href]"):
+            match = re.search(r"/movie/(\d+)", a["href"])
+            if not match:
+                continue
+            movie_id = match.group(1)
+            if movie_id not in movies:
+                movies[movie_id] = {
+                    "id": movie_id,
+                    "title": a["title"].strip(),
+                    "link": f"https://multiplex.ua/movie/{movie_id}",
+                    "earliest_date": block_date,
+                }
+            else:
+                movies[movie_id]["earliest_date"] = min(movies[movie_id]["earliest_date"], block_date)
+
+    # лише те, що вже реально в прокаті, а не передпродаж майбутньої прем'єри:
+    # беремо найближчу дату, яку сама сторінка вважає "зараз" (а не наш час —
+    # ввечері сайт інколи вже показує завтра як перший блок), і невеликий запас
+    # в 1 день на фільми, що стартують наступного дня після цього блоку.
+    nearest = min(m["earliest_date"] for m in movies.values())
+    cutoff = nearest + timedelta(days=1)
+    return [m for m in movies.values() if m["earliest_date"] <= cutoff]
 
 
 def _fetch_details(movie_id: str) -> dict:
