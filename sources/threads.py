@@ -1,0 +1,123 @@
+import logging
+import re
+from datetime import datetime
+from pathlib import Path
+
+from playwright.sync_api import sync_playwright
+
+from sources.base import Item
+
+logger = logging.getLogger(__name__)
+
+PROFILE_DIR = Path(__file__).resolve().parent.parent / "data" / "threads_profile"
+SCROLL_ROUNDS = 18
+
+EXTRACT_POSTS_JS = """
+() => {
+    function findPostContainer(anchor) {
+        let el = anchor;
+        for (let i = 0; i < 25 && el.parentElement; i++) {
+            el = el.parentElement;
+            const text = el.innerText || '';
+            const siblingCount = el.parentElement ? el.parentElement.children.length : 0;
+            if (text.length >= 40 && siblingCount >= 2) {
+                return el;
+            }
+        }
+        return el;
+    }
+    const anchors = Array.from(document.querySelectorAll('a[href]'))
+        .filter(a => /^\\/@[^/]+\\/post\\/[^/]+$/.test(a.getAttribute('href')));
+    return anchors.map(a => ({href: a.getAttribute('href'), text: findPostContainer(a).innerText}));
+}
+"""
+
+PERMALINK_RE = re.compile(r"^/@([^/]+)/post/([^/]+)$")
+COUNT_LINE_RE = re.compile(r"^(\d{1,3}(?:,\d{3})*|\d+)(\.\d+)?(K|M)?$")
+
+
+def _parse_count(line: str):
+    match = COUNT_LINE_RE.match(line)
+    if not match:
+        return None
+    whole, frac, suffix = match.groups()
+    value = float(whole.replace(",", "") + (frac or ""))
+    if suffix == "K":
+        value *= 1_000
+    elif suffix == "M":
+        value *= 1_000_000
+    return int(value)
+
+
+def _parse_post(raw_text: str):
+    lines = [line.strip() for line in raw_text.split("\n") if line.strip()]
+    body_lines = []
+    counts = []
+    for line in lines[2:]:
+        if line == "Translate":
+            continue
+        count = _parse_count(line)
+        if count is not None:
+            counts.append(count)
+        else:
+            body_lines.append(line)
+    body = "\n".join(body_lines).strip()
+    likes = counts[0] if counts else None
+    return body, likes
+
+
+class ThreadsSource:
+    name = "threads_posts"
+
+    def fetch(self) -> list[Item]:
+        posts = {}
+        try:
+            with sync_playwright() as p:
+                context = p.chromium.launch_persistent_context(str(PROFILE_DIR), headless=True)
+                page = context.new_page()
+                page.goto("https://www.threads.com/", timeout=30000)
+                page.wait_for_timeout(2000)
+
+                for _ in range(SCROLL_ROUNDS):
+                    for raw in page.evaluate(EXTRACT_POSTS_JS):
+                        match = PERMALINK_RE.match(raw["href"])
+                        if not match:
+                            continue
+                        author, shortcode = match.groups()
+                        body, likes = _parse_post(raw["text"])
+                        if body:
+                            posts[shortcode] = {
+                                "author": author, "shortcode": shortcode, "text": body, "likes": likes,
+                            }
+
+                    page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
+                    page.wait_for_timeout(1200)
+
+                context.close()
+        except Exception:
+            logger.exception("threads: fetch failed")
+            return []
+
+        fetched_at = datetime.now().isoformat()
+        return [
+            Item(
+                external_id=post["shortcode"],
+                fetched_at=fetched_at,
+                payload={
+                    "author": post["author"],
+                    "text": post["text"],
+                    "likes": post["likes"],
+                    "link": f"https://www.threads.com/@{post['author']}/post/{post['shortcode']}",
+                },
+            )
+            for post in posts.values()
+        ]
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    items = ThreadsSource().fetch()
+    print(f"знайдено постів: {len(items)}\n")
+    for item in items:
+        p = item.payload
+        print(f"@{p['author']}: {p['text'][:100]!r}")

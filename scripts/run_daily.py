@@ -7,11 +7,13 @@ import report
 import telegram_bot
 from sources.football import FootballSource
 from sources.instagram import InstagramSource
+from sources.threads import ThreadsSource
 
-SOURCES = [FootballSource(), InstagramSource()]
+SOURCES = [FootballSource(), InstagramSource(), ThreadsSource()]
 DIGEST_HEADERS = {
     "football_articles": "Ліверпуль — новини за добу",
     "instagram_posts": "Instagram — нові пости",
+    "threads_posts": "Threads — про що зараз говорять",
 }
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "run_daily.log"
@@ -38,6 +40,8 @@ def main():
     for table, header in DIGEST_HEADERS.items():
         if table == "instagram_posts":
             text = report.build_instagram_digest(header)
+        elif table == "threads_posts":
+            text = report.build_threads_digest(table, header)
         else:
             text = report.build_digest(table, header)
         if text is None:
