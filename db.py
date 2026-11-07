@@ -48,6 +48,16 @@ def get_unsent(table: str) -> list[dict]:
     ]
 
 
+def get_all(table: str) -> list[dict]:
+    with connect() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(f"SELECT external_id, fetched_at, payload FROM {table}").fetchall()
+    return [
+        {"external_id": row["external_id"], "fetched_at": row["fetched_at"], "payload": json.loads(row["payload"])}
+        for row in rows
+    ]
+
+
 def mark_sent(table: str, external_ids: list[str], sent_at: str) -> None:
     if not external_ids:
         return

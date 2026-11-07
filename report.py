@@ -50,6 +50,38 @@ def build_instagram_digest(header: str) -> str | None:
     return "\n".join(lines)
 
 
+def _multiplex_score(item) -> float:
+    parts = []
+    if item.payload.get("imdb_rating") is not None:
+        parts.append(item.payload["imdb_rating"] * 10)
+    if item.payload.get("rt_rating") is not None:
+        parts.append(item.payload["rt_rating"])
+    return sum(parts) / len(parts) if parts else -1
+
+
+def build_multiplex_digest(items: list, seen_before_ids: set, header: str) -> str | None:
+    if not items:
+        return None
+
+    lines = [f"<b>{html.escape(header)}</b>", ""]
+    for item in sorted(items, key=_multiplex_score, reverse=True):
+        p = item.payload
+        marker = "🆕 " if item.external_id not in seen_before_ids else ""
+        title = html.escape(p["title"])
+        original = f" ({html.escape(p['original_title'])}, {p['year']})" if p.get("original_title") else ""
+
+        ratings = []
+        if p.get("imdb_rating") is not None:
+            ratings.append(f"IMDb {p['imdb_rating']}/10")
+        if p.get("rt_rating") is not None:
+            ratings.append(f"RT {p['rt_rating']}%")
+        rating_text = f" — {' · '.join(ratings)}" if ratings else ""
+
+        link = html.escape(p["link"], quote=True)
+        lines.append(f'• {marker}{title}{original}{rating_text} — <a href="{link}">Детальніше</a>')
+    return "\n".join(lines)
+
+
 def build_digest(table: str, header: str) -> str | None:
     items = get_unsent(table)
     if not items:

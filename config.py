@@ -11,3 +11,4 @@ DB_PATH = BASE_DIR / "data" / "digest.db"
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 APIFY_TOKEN = os.environ.get("APIFY_TOKEN")
+OMDB_API_KEY = os.environ.get("OMDB_API_KEY")
