@@ -14,5 +14,5 @@ def build_digest(table: str, header: str) -> str | None:
     for item in items:
         title = html.escape(item["payload"]["title"])
         link = html.escape(item["payload"]["link"], quote=True)
-        lines.append(f'• {title} — <a href="{link}">Детальніше</a>')
+        lines.append(f'• {title} (<a href="{link}">Детальніше</a>)')
     return "\n".join(lines)
