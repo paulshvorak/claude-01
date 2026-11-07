@@ -28,8 +28,14 @@ def _chunk(text: str, limit: int) -> list:
 
 def _send_single(text: str) -> bool:
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+    }
     try:
-        response = requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": text}, timeout=15)
+        response = requests.post(url, json=payload, timeout=15)
     except requests.RequestException as e:
         # не логувати str(e)/traceback — може містити url із токеном
         logger.error("telegram: request failed (%s)", type(e).__name__)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html
+
 from db import get_unsent
 
 
@@ -8,6 +10,9 @@ def build_digest(table: str, header: str) -> str | None:
     if not items:
         return None
 
-    lines = [header, ""]
-    lines += [f"• {item['payload']['title']} — {item['payload']['link']}" for item in items]
+    lines = [f"<b>{html.escape(header)}</b>", ""]
+    for item in items:
+        title = html.escape(item["payload"]["title"])
+        link = html.escape(item["payload"]["link"], quote=True)
+        lines.append(f'• {title} — <a href="{link}">Детальніше</a>')
     return "\n".join(lines)
