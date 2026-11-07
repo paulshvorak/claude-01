@@ -5,11 +5,14 @@ from pathlib import Path
 import db
 import report
 import telegram_bot
+from sources.ai_news import AINewsSource
 from sources.football import FootballSource
 from sources.instagram import InstagramSource
 from sources.threads import ThreadsSource
 
-SOURCES = [FootballSource(), InstagramSource(), ThreadsSource()]
+# AINewsSource збирається щодня (накопичення для тижневого дайджесту в run_weekly.py),
+# але не входить у DIGEST_HEADERS — щоденного дайджесту по ньому нема, лише збір.
+SOURCES = [FootballSource(), InstagramSource(), ThreadsSource(), AINewsSource()]
 DIGEST_HEADERS = {
     "football_articles": "Ліверпуль — новини за добу",
     "instagram_posts": "Instagram — нові пости",
