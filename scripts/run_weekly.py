@@ -32,7 +32,7 @@ def main():
     db.insert_new(source.name, items)
     logger.info("%s: fetched %d items", source.name, len(items))
 
-    text = report.build_multiplex_digest(items, seen_before_ids, "Промінь Луцьк — у прокаті")
+    text = report.build_multiplex_digest(items, seen_before_ids, "Кінопрокат на наступний тиждень")
     if text is None:
         return
 
