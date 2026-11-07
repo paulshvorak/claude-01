@@ -51,6 +51,7 @@ class InstagramSource:
                     "caption": post.get("caption") or "",
                     "link": post["url"],
                     "timestamp": post.get("timestamp"),
+                    "likes": post.get("likesCount"),
                 },
             ))
 
