@@ -93,8 +93,9 @@ THREADS_ENRICH_PROMPT = """Нижче — теми з чужої соціаль�
 коментарі (яка думка переважає, чому це зачепило людей). Тон буденний, без канцеляриту. Не вигадуй \
 деталей, яких нема в тексті.
 
-Виведи СТРОГО JSON-масив у тому самому порядку, без пояснень і без ```-огорож: \
-[{{"theme": "<назва теми як дано вище>", "summary": "<~2 речення>"}}]."""
+Виведи СТРОГО JSON-масив, без пояснень і без ```-огорож: \
+[{{"id": N, "summary": "<~2 речення>"}}] де N — номер теми (той самий, що в заголовку «Тема #N» вище) — \
+щоб опис не переплутався з іншою темою."""
 
 
 def _call_claude(prompt: str, timeout: int, log_prefix: str, model: str = "claude-haiku-4-5-20251001") -> str | None:
@@ -163,25 +164,33 @@ def build_threads_digest(table: str, header: str) -> str | None:
         return None
 
     themes_block = "\n\n---\n\n".join(
-        "Тема: {theme}\nПост від @{author}: {text}\nКоментарі:\n{comments}".format(
+        "Тема #{id}: {theme}\nПост від @{author}: {text}\nКоментарі:\n{comments}".format(
+            id=i,
             theme=e["theme"],
             author=e["post"]["author"],
             text=e["post"]["text"],
             comments="\n".join(f"- @{c['author']} ({c['likes']} лайків): {c['text']}" for c in e["comments"])
             or "(коментарів не знайдено)",
         )
-        for e in enriched
+        for i, e in enumerate(enriched, start=1)
     )
     stage3 = _call_claude(
         THREADS_ENRICH_PROMPT.format(themes=themes_block),
         timeout=90, log_prefix="threads enrich", model="claude-sonnet-5",
     )
     summaries = _parse_json_array(stage3) if stage3 else []
-    summary_by_theme = {s.get("theme"): s.get("summary") for s in summaries if isinstance(s, dict)}
+    summary_by_id = {}
+    for s in summaries:
+        if not isinstance(s, dict):
+            continue
+        try:
+            summary_by_id[int(s.get("id"))] = s.get("summary")
+        except (TypeError, ValueError):
+            continue
 
     lines = [f"<b>{html.escape(header)}</b>", ""]
-    for e in enriched:
-        summary = summary_by_theme.get(e["theme"]) or e["theme"]
+    for i, e in enumerate(enriched, start=1):
+        summary = summary_by_id.get(i) or e["theme"]
         link = html.escape(e["post"]["link"], quote=True)
         lines.append(f'• <b>{html.escape(e["theme"])}</b> — {html.escape(summary)} — <a href="{link}">Детальніше</a>')
         lines.append("")
