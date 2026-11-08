@@ -7,3 +7,4 @@ __pycache__/
 *.pyc
 .venv/
 logs/
+.claude/.last_reviewed_diff

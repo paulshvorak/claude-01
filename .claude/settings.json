@@ -7,6 +7,10 @@
           {
             "type": "command",
             "command": "python3 scripts/check_no_secrets.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 scripts/check_code_review.py"
           }
         ]
       }
